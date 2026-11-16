@@ -8,7 +8,6 @@ from supabase import create_client
 # ==========================================
 # CONFIGURAÇÕES E VARIÁVEIS DE AMBIENTE
 # ==========================================
-# O GitHub Actions irá injetar essas variáveis através dos secrets
 API_URI = os.getenv("API_URI")
 API_USER = os.getenv("API_USER")
 API_PASS = os.getenv("API_PASS")
@@ -19,7 +18,6 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 ENDPOINT_PRODUTOS_V5 = "/api/millenium!vdl_anjuu/produtos/Lista_Produtos_Sem_Box_v5?$format=json"
 
-# Inicializa cliente Supabase
 if not SUPABASE_URL or not SUPABASE_KEY:
     print("ERRO: Credenciais do Supabase não encontradas nas variáveis de ambiente.")
     exit(1)
@@ -97,11 +95,7 @@ def login_millennium() -> str:
         raise ValueError("API_USER / API_PASS não encontrados.")
 
     url = f"{obter_raiz()}/api/login?$format=json&$dateformat=iso"
-    resp = requests.get(
-        url,
-        headers={"WTS-Authorization": f"{API_USER}/{API_PASS}"},
-        timeout=30,
-    )
+    resp = requests.get(url, headers={"WTS-Authorization": f"{API_USER}/{API_PASS}"}, timeout=30)
     if resp.status_code != 200:
         raise RuntimeError(f"Falha no login do Millennium (HTTP {resp.status_code}).")
 
@@ -162,7 +156,7 @@ def buscar_dados_api(dias_recentes: int = 7) -> list[dict]:
                 link = dados_prox.get("odata.nextLink") or dados_prox.get("@odata.nextLink")
                 url_proxima = urljoin(url_proxima, link) if link else None
             
-            break # Se funcionou com este parâmetro, interrompe o loop
+            break 
     finally:
         print("🔒 Encerrando sessão do Millennium...")
         logout_millennium(token)
@@ -184,7 +178,6 @@ def obter_referencias_ocultas_manualmente() -> set[str]:
 def rodar_sincronizacao():
     print(f"🚀 Iniciando sincronização (Data/Hora atual: {datetime.datetime.now()})")
     
-    # Busca 7 dias para garantir que pegamos baixas de estoque
     itens_api = buscar_dados_api(dias_recentes=7)
     
     if not itens_api:
@@ -204,7 +197,12 @@ def rodar_sincronizacao():
         if not ref:
             continue
 
-        estoque_item = int(item.get("disp_pronta_entrega") or 0)
+        # IDENTIFICA SE É CAIXA LO
+        is_lo = bool(item.get("lo"))
+        
+        # SÓ CONTA O ESTOQUE SE NÃO FOR LO
+        estoque_item = 0 if is_lo else int(item.get("disp_pronta_entrega") or 0)
+        
         esgotada = bool(item.get("referencia_esgotada"))
         id_sem = item.get("id_semelhante")
         id_sem_int = int(id_sem) if id_sem is not None and str(id_sem).strip().isdigit() and int(id_sem) > 0 else None
@@ -228,13 +226,13 @@ def rodar_sincronizacao():
                 "preco": float(item.get("preco_padrao_pc") or 0),
                 "estoque_pe": estoque_item,
                 "ativo": esta_ativo,
+                "caixas_por_cor": {} # Inicializa dict de caixas
             }
         else:
             agrupados_por_ref[ref]["estoque_pe"] += estoque_item
             if not agrupados_por_ref[ref]["id_semelhante"] and id_sem_int:
                 agrupados_por_ref[ref]["id_semelhante"] = id_sem_int
 
-            # Atualiza os dados de texto caso venham em outras cores/variantes
             for campo, valor_novo in [
                 ("marca", marca_mapeada),
                 ("descricao", limpar_descricao(item.get("descricao"))),
@@ -249,6 +247,19 @@ def rodar_sincronizacao():
             ]:
                 if not agrupados_por_ref[ref][campo] and valor_novo:
                     agrupados_por_ref[ref][campo] = valor_novo
+
+        # EXTRAI A COR E A CAIXA DESSA COR (Mesmo se for LO para identificar)
+        cor_info = item.get("fotos_cor", [])
+        if cor_info and len(cor_info) > 0:
+            nome_cor = limpar_texto(cor_info[0].get("cor"))
+            caixa_nome = limpar_texto(item.get("caixa"))
+            
+            # Se for LO e vier sem caixa preenchida, marcamos como LO
+            if not caixa_nome and is_lo:
+                caixa_nome = "LO"
+                
+            if nome_cor and caixa_nome:
+                agrupados_por_ref[ref]["caixas_por_cor"][nome_cor] = caixa_nome
 
     lista_final = list(agrupados_por_ref.values())
     total_refs = len(lista_final)
