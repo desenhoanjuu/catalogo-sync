@@ -5,22 +5,13 @@ from urllib.parse import urljoin
 import requests
 from supabase import create_client
 
-# ==========================================
-# CONFIGURAÇÕES E VARIÁVEIS DE AMBIENTE
-# ==========================================
 API_URI = os.getenv("API_URI")
 API_USER = os.getenv("API_USER")
 API_PASS = os.getenv("API_PASS")
 API_TIMEOUT = 180
-
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
 ENDPOINT_PRODUTOS_V5 = "/api/millenium!vdl_anjuu/produtos/Lista_Produtos_Sem_Box_v5?$format=json"
-
-if not SUPABASE_URL or not SUPABASE_KEY:
-    print("ERRO: Credenciais do Supabase não encontradas.")
-    exit(1)
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -40,7 +31,6 @@ def limpar_grade(grade_bruta) -> str | None:
     return texto.replace('/', '.')
 
 def limpar_nome_cor(nome_cor_bruto) -> str | None:
-    # Transforma "VERDE-14-6011" em "VERDE"
     texto = limpar_texto(nome_cor_bruto)
     if not texto: return None
     return texto.split('-')[0].strip()
@@ -72,8 +62,7 @@ def obter_base_url() -> str:
     if not base.startswith(('http://', 'https://')): base = f"http://{base}"
     return base
 
-def obter_raiz() -> str:
-    return obter_base_url().split('/api/')[0]
+def obter_raiz() -> str: return obter_base_url().split('/api/')[0]
 
 def login_millennium() -> str:
     url = f"{obter_raiz()}/api/login?$format=json&$dateformat=iso"
@@ -147,9 +136,7 @@ def rodar_sincronizacao():
         ref = limpar_texto(item.get("referencia"))
         if not ref: continue
         
-        # Ignora a linha mestre do produto que não é kit e vem sem caixa
-        if item.get("kit") is False and not item.get("caixa"):
-            continue
+        if item.get("kit") is False and not item.get("caixa"): continue
 
         is_lo = bool(item.get("lo"))
         estoque_item = 0 if is_lo else int(item.get("disp_pronta_entrega") or 0)
@@ -196,21 +183,19 @@ def rodar_sincronizacao():
         cor_info = item.get("fotos_cor", [])
         if cor_info and len(cor_info) > 0:
             nome_cor_bruto = cor_info[0].get("cor")
-            nome_cor = limpar_nome_cor(nome_cor_bruto) # Vira só "VERDE"
+            nome_cor = limpar_nome_cor(nome_cor_bruto)
             
             caixa_nome = limpar_texto(item.get("caixa"))
             qtde_pcs = item.get("qtde_pcs_cx", "")
             
-            if not caixa_nome and is_lo:
-                caixa_nome = "LO"
+            if not caixa_nome and is_lo: caixa_nome = "LO"
                 
             if nome_cor:
-                # Soma caso existam múltiplas linhas para a mesma cor
                 estoque_atual = agrupados_por_ref[ref]["estoque_por_cor"].get(nome_cor, 0)
                 agrupados_por_ref[ref]["estoque_por_cor"][nome_cor] = estoque_atual + estoque_item
                 
                 if caixa_nome:
-                    caixa_formatada = f"CX-{qtde_pcs}{caixa_nome}"
+                    caixa_formatada = f"{qtde_pcs}{caixa_nome}"
                     agrupados_por_ref[ref]["caixas_por_cor"][nome_cor] = caixa_formatada
 
     lista_final = list(agrupados_por_ref.values())
