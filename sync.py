@@ -39,6 +39,12 @@ def limpar_grade(grade_bruta) -> str | None:
     if not texto: return None
     return texto.replace('/', '.')
 
+def limpar_nome_cor(nome_cor_bruto) -> str | None:
+    # Transforma "VERDE-14-6011" em "VERDE"
+    texto = limpar_texto(nome_cor_bruto)
+    if not texto: return None
+    return texto.split('-')[0].strip()
+
 def mapear_marca(item: dict) -> str | None:
     bruta = limpar_texto(item.get("marca"))
     if not bruta: return None
@@ -140,6 +146,10 @@ def rodar_sincronizacao():
 
         ref = limpar_texto(item.get("referencia"))
         if not ref: continue
+        
+        # Ignora a linha mestre do produto que não é kit e vem sem caixa
+        if item.get("kit") is False and not item.get("caixa"):
+            continue
 
         is_lo = bool(item.get("lo"))
         estoque_item = 0 if is_lo else int(item.get("disp_pronta_entrega") or 0)
@@ -185,7 +195,9 @@ def rodar_sincronizacao():
 
         cor_info = item.get("fotos_cor", [])
         if cor_info and len(cor_info) > 0:
-            nome_cor = limpar_texto(cor_info[0].get("cor"))
+            nome_cor_bruto = cor_info[0].get("cor")
+            nome_cor = limpar_nome_cor(nome_cor_bruto) # Vira só "VERDE"
+            
             caixa_nome = limpar_texto(item.get("caixa"))
             qtde_pcs = item.get("qtde_pcs_cx", "")
             
@@ -193,9 +205,12 @@ def rodar_sincronizacao():
                 caixa_nome = "LO"
                 
             if nome_cor:
-                agrupados_por_ref[ref]["estoque_por_cor"][nome_cor] = estoque_item
+                # Soma caso existam múltiplas linhas para a mesma cor
+                estoque_atual = agrupados_por_ref[ref]["estoque_por_cor"].get(nome_cor, 0)
+                agrupados_por_ref[ref]["estoque_por_cor"][nome_cor] = estoque_atual + estoque_item
+                
                 if caixa_nome:
-                    caixa_formatada = f"{qtde_pcs}{caixa_nome}"
+                    caixa_formatada = f"CX-{qtde_pcs}{caixa_nome}"
                     agrupados_por_ref[ref]["caixas_por_cor"][nome_cor] = caixa_formatada
 
     lista_final = list(agrupados_por_ref.values())
