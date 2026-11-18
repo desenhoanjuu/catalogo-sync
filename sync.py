@@ -57,14 +57,21 @@ def limpar_nome_cor(nome_cor_bruto) -> str | None:
     return texto or None
 
 
+def caixa_valida(item: dict) -> bool:
+    """Caixas de verdade são identificadas por letra (A, B, TA, TB...). Linhas com número no lugar
+    da letra (ex.: caixas NP com caixa "1") são erro de cadastro e ficam fora do site."""
+    letra = limpar_texto(item.get("caixa"))
+    return bool(letra) and re.fullmatch(r"[A-Za-z]+", letra) is not None
+
+
 def registrar_caixa(produto: dict, item: dict, is_lo: bool, estoque_item: int) -> None:
     """Cada linha da API é uma caixa (ex.: CX-22D), que pode ter uma ou mais cores.
     Caixas LO (sortidas) não entram."""
     if is_lo:
         return
-    letra = limpar_texto(item.get("caixa"))
-    if not letra:
+    if not caixa_valida(item):
         return
+    letra = limpar_texto(item.get("caixa"))
     cores = []
     for c in item.get("fotos_cor") or []:
         nome = limpar_nome_cor(c.get("cor")) if isinstance(c, dict) else None
@@ -207,7 +214,6 @@ def rodar_sincronizacao():
         print("⚠️ Nenhum item retornado pela API.")
         return
 
-    refs_ocultas = obter_referencias_ocultas_manualmente()
     agrupados: dict[str, dict] = {}
 
     for item in itens_api:
@@ -222,7 +228,8 @@ def rodar_sincronizacao():
             continue
 
         is_lo = bool(item.get("lo"))
-        estoque_item = 0 if is_lo else int(item.get("disp_pronta_entrega") or 0)
+        caixa_errada = bool(limpar_texto(item.get("caixa"))) and not caixa_valida(item)
+        estoque_item = 0 if (is_lo or caixa_errada) else int(item.get("disp_pronta_entrega") or 0)
         esgotada = bool(item.get("referencia_esgotada"))
         id_sem = item.get("id_semelhante")
         id_sem_int = int(id_sem) if id_sem is not None and str(id_sem).strip().isdigit() and int(id_sem) > 0 else None
@@ -243,7 +250,7 @@ def rodar_sincronizacao():
                 "composicao": limpar_texto(item.get("composicao")),
                 "preco": float(item.get("preco_padrao_pc") or 0),
                 "estoque_pe": estoque_item,
-                "ativo": False if ref in refs_ocultas else (not esgotada),
+                "esgotado_erp": esgotada,
                 "caixas": [],
                 "caixas_por_cor": {},
                 "estoque_por_cor": {},
