@@ -46,6 +46,14 @@ def limpar_grade(grade_bruta) -> str | None:
     return texto.replace("/", ".") if texto else None
 
 
+PALAVRAS_INGLES = {
+    "black", "white", "grey", "gray", "green", "blue", "red", "beige", "brown", "pink", "yellow",
+    "navy", "deep", "light", "dark", "olive", "khaki", "cream", "ivory", "wine", "purple", "orange",
+    "mint", "sand", "camel", "lilac", "silver", "gold", "rose", "sky", "royal", "burgundy", "mustard",
+    "teal", "turquoise", "charcoal", "taupe", "tan", "coffee", "chocolate", "salmon", "peach", "lavender",
+}
+
+
 def limpar_nome_cor(nome_cor_bruto) -> str | None:
     """Tira só o código Pantone do fim ("VERDE-14-6011" -> "VERDE") e a tradução
     em inglês ("PRETO-BLACK" -> "PRETO"). Estampas como "PRINT:416-1" ficam inteiras."""
@@ -53,8 +61,14 @@ def limpar_nome_cor(nome_cor_bruto) -> str | None:
     if not texto:
         return None
     texto = re.sub(r"-\d{2}-\d{4}\w*$", "", texto).strip()
-    texto = re.sub(r"(?<!OFF)-(BLACK|WHITE)$", "", texto, flags=re.IGNORECASE).strip()
-    return texto or None
+    # Tira a tradução em inglês do fim ("BEGE-BEIGE", "MARROM 2-DEEP-GREEN", "CINZA CLARO-LIGHT")
+    partes = texto.split("-")
+    while len(partes) > 1 and all(w.lower() in PALAVRAS_INGLES for w in partes[-1].split()):
+        partes.pop()
+    limpo = "-".join(partes).strip()
+    if limpo.upper() in ("OFF", "NUDE"):  # "OFF-WHITE" fica inteiro
+        limpo = texto
+    return limpo or None
 
 
 def caixa_valida(item: dict) -> bool:
@@ -77,12 +91,16 @@ def registrar_caixa(produto: dict, item: dict, is_lo: bool, estoque_item: int) -
         nome = limpar_nome_cor(c.get("cor")) if isinstance(c, dict) else None
         if nome and nome not in cores:
             cores.append(nome)
+    programacao = bool(item.get("programacao"))
     produto["caixas"].append({
         "caixa": letra.upper(),
         "pecas": int(item.get("qtde_pcs_cx") or 0),
         "cores": sorted(cores),
         "estoque": estoque_item,
         "esgotada": bool(item.get("caixa_esgotada")) and estoque_item <= 0,
+        # Programação: ainda sem estoque físico, com previsão de chegada
+        "programacao": programacao,
+        "previsao": limpar_texto(item.get("data_entregapc")) if programacao else None,
     })
 
 
@@ -98,6 +116,23 @@ def finalizar_caixas(produto: dict) -> None:
             caixas_por_cor.setdefault(cor, f"{cx['pecas']}{cx['caixa']}")
     produto["caixas_por_cor"] = caixas_por_cor
     produto["estoque_por_cor"] = estoque_por_cor
+
+    # Programação: referência com alguma caixa em programação e a previsão mais próxima
+    def _data(texto):
+        try:
+            return datetime.datetime.strptime(str(texto)[:10], "%d/%m/%Y")
+        except (TypeError, ValueError):
+            return None
+
+    previsoes = [cx["previsao"] for cx in caixas if cx.get("programacao") and _data(cx.get("previsao"))]
+    produto["programacao"] = any(cx.get("programacao") for cx in caixas)
+    produto["previsao_entrega"] = min(previsoes, key=_data) if previsoes else None
+
+    # Todas as caixas esgotadas (e nenhuma em programação): a referência sai do site sozinha
+    sem_caixa_disponivel = bool(caixas) and not any(
+        cx["estoque"] > 0 or cx.get("programacao") for cx in caixas
+    )
+    produto["esgotado_erp"] = bool(produto.get("esgotado_erp")) or sem_caixa_disponivel
 
 
 def mapear_marca(item: dict) -> str | None:
