@@ -100,6 +100,8 @@ def registrar_caixa(produto: dict, item: dict, is_lo: bool, estoque_item: int) -
         "esgotada": bool(item.get("caixa_esgotada")) and estoque_item <= 0,
         # Programação: ainda sem estoque físico, com previsão de chegada
         "programacao": programacao,
+        # Preço por peça desta caixa no Millennium (o site multiplica pelas peças da caixa)
+        "preco_pc": round(float(item.get("preco_padrao_pc") or 0), 2),
         "previsao": limpar_texto(item.get("data_entregapc")) if programacao else None,
     })
 
@@ -126,6 +128,9 @@ def finalizar_caixas(produto: dict) -> None:
 
     previsoes = [cx["previsao"] for cx in caixas if cx.get("programacao") and _data(cx.get("previsao"))]
     produto["programacao"] = any(cx.get("programacao") for cx in caixas)
+
+    # Preço da referência = preço por peça da 1ª caixa válida (mesma regra do gerador de catálogo)
+    produto["preco_peca"] = next((cx["preco_pc"] for cx in caixas if cx.get("preco_pc")), None)
     produto["previsao_entrega"] = min(previsoes, key=_data) if previsoes else None
 
     # Todas as caixas esgotadas (e nenhuma em programação): a referência sai do site sozinha
