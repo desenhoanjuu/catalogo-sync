@@ -133,10 +133,9 @@ def finalizar_caixas(produto: dict) -> None:
     produto["preco_peca"] = next((cx["preco_pc"] for cx in caixas if cx.get("preco_pc")), None)
     produto["previsao_entrega"] = min(previsoes, key=_data) if previsoes else None
 
-    # Todas as caixas esgotadas (e nenhuma em programação): a referência sai do site sozinha
-    sem_caixa_disponivel = bool(caixas) and not any(
-        cx["estoque"] > 0 or cx.get("programacao") for cx in caixas
-    )
+    # Sai do site sozinha quando não tem NENHUMA caixa disponível: todas esgotadas (e nenhuma em
+    # programação) ou nenhuma caixa válida (só caixas sortidas/LO, que o site não mostra)
+    sem_caixa_disponivel = not any(cx["estoque"] > 0 or cx.get("programacao") for cx in caixas)
     produto["esgotado_erp"] = bool(produto.get("esgotado_erp")) or sem_caixa_disponivel
 
 
